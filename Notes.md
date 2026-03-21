@@ -55,3 +55,7 @@ Configurable Storage: this storage is used by the device to load confguration da
 External Storage: Extra storage used for other purposes.
 
 On this device I will likely just load my OS into the QSPI NOR storage since it should be small enough. 64MB should be plenty considering my OS likely won't break 100 KBs.
+
+## Fun Facts
+
+I did not realize this but FPGAs are literally just breadboards for ASICs. It allows you to use the scalability and ease of testing of software do assemble VLSI level circuits. Then you can either leave it on the FPGA or if you need to manufacture at scale you just port to an ASIC and use the incredibly well worn silicon fabrication ecosystem to pump out the chips you need.

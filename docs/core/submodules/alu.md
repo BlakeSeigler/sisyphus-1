@@ -14,3 +14,4 @@ Operations:
 1111 - SRA           // Shift Right Arithmetic
 SLTU          // Set Less than unsigned
 
+This is the RISC-V32 ISA commands

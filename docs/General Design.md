@@ -15,7 +15,7 @@ How does the ram setup on the fpga work?
 How big do the L1, L2, and L3 caches need to be? Do I need all of them? How big do I make these?
 
 FPGA Types:
-- SoM boards -- just the brain 
+- SoM boards -- just the brain with some peripherals
 - Dev Boards -- brain with lots of peripherals
 - Core Boards -- brain with very limited peripherals
 *Carrier boards - the mounting board you put SoM boards on. usually make these custom and mount your SoM on it.

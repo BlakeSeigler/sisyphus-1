@@ -67,24 +67,49 @@ learning project, not a sprint. Go in order; each milestone assumes the last wor
 - [ ] Check LUT usage against the 20,736 budget
 
 ## M8 — Peripherals & Minimal OS (~ongoing)
-- [ ] Bootware: tells the CPU where to start executing
-- [ ] UART driver (usb-c) for host communication
-- [ ] Shell: basic arithmetic commands, read input / print output
-- [ ] Hardware exerciser: stress test to see real throughput limits
 
-## M9 — Pipelining (stretch, after M5-M8 work)
+### Boot flow
+- [ ] Decide + design the QSPI NOR boot flow: how the OS image gets copied from
+      QSPI NOR into BRAM/SDRAM at power-on before the CPU starts executing
+- [ ] (optional, dev convenience) UART-based loader as a faster iterate-without-
+      reflashing path during development, separate from the "real" QSPI boot flow
+
+### Memory-mapped I/O
+- [ ] Reserve an address range for peripheral registers and add address-decode
+      logic so loads/stores in that range route to peripherals instead of DMem
+
+### UART driver
+- [ ] RTL: TX/RX module (baud-rate generator, shift registers) wired onto the
+      memory-mapped bus
+- [ ] Software: small C routines to write/read the UART's memory-mapped
+      registers (e.g. putc/getc) for host communication over USB-C
+
+### Shell
+- [ ] Basic arithmetic commands, read input / print output over UART
+
+### Hardware exerciser
+- [ ] Stress test to see real throughput limits
+
+### Deferred / not required for v1
+- [ ] CSRs + trap handling (ECALL/EBREAK, interrupts) — only needed if the OS
+      has to gracefully handle faults or asynchronous events; the current OS is
+      a simple polling loop with no protection domains, so this can stay out of
+      scope unless a concrete need for it shows up
+
+---
+
+## Future Goals 
+
+### Pipelining 
 - [ ] Start with a simple 3-stage or 5-stage pipeline (per your own note in
       `ProcessorDesign.md`)
 - [ ] Add hazard detection (data hazards, load-use hazard)
 - [ ] Add forwarding/bypassing
 - [ ] Add branch handling (stall or simple predict-not-taken)
 
----
+### HDMI / Video Output
+- [ ] Pixel clock generation via PLL
+- [ ] Video timing generator (hsync/vsync, active-video window)
+- [ ] TMDS encoder/serializer to actually drive the board's HDMI port
+- [ ] (further out) framebuffer if you want more than fixed/generated patterns
 
-## Open Questions (from your notes, unresolved)
-- How is pipeline vs. OS scheduler responsibility split? (Pipeline = CPU-level
-  instruction overlap; scheduler = OS-level "which process runs next" — these
-  are different layers and mostly independent, but worth revisiting once M9 is near.)
-- Cache sizing: given the Tang Nano 20k's BRAM (~869KB total), you likely don't
-  need a traditional L1/L2/L3 split — BRAM itself can serve as your only cache
-  level, or you may skip caching entirely for v1 and go straight to SDRAM.

@@ -8,10 +8,10 @@ No pipelining until the single-cycle version fully works.
 ## M0 — Toolchain & Project Setup 
 - [x] Install a Verilog/SystemVerilog simulator: Icarus Verilog or Verilator
 - [x] Install a waveform viewer: GTKWave or Surfer
-- [ ] Install the Gowin toolchain for the Tang Nano 20k (for later FPGA bring-up)
+- [x] Install the Gowin toolchain for the Tang Nano 20k (for later FPGA bring-up)
 - [ ] Write one trivial testbench (e.g. a blinker or a 2-input AND gate) to prove
       sim → waveform round-trip works before touching real RTL
-- [ ] Decide on a directory convention for `rtl/` vs `tb/` (testbenches) and stick to it
+- [x] Decide on a directory convention for `rtl/` vs `tb/` (testbenches) and stick to it
 
 ## M1 — ALU
 - [ ] Fix `alu_module.sv` port list: `a`, `b`, `c` need to be `[31:0]`, `opcode`

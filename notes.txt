@@ -1,0 +1,41 @@
+Toolchain command notes (OSS CAD Suite: iverilog, gtkwave, yosys, nextpnr-himbaechel, openFPGALoader)
+
+1. Simulate with iverilog, view with gtkwave
+---------------------------------------------
+iverilog -o sim.vvp design.sv testbench.sv
+vvp sim.vvp
+
+For a waveform to show up, the testbench needs somewhere in an initial block:
+  $dumpfile("wave.vcd");
+  $dumpvars(0, tb_module);
+
+Then view it:
+  gtkwave wave.vcd
+
+Drag signals from the module tree on the left into the waveform pane to see them.
+
+2. FPGA flow: synth -> place & route -> pack -> flash
+------------------------------------------------------
+Target: Tang Nano 20k (device GW2AR-LV18QN88C8/I7, family GW2A-18C)
+
+yosys -p "read_verilog design.sv; synth_gowin -json design.json"
+
+nextpnr-himbaechel --json design.json --write pnr.json \
+  --device GW2AR-LV18QN88C8/I7 --vopt family=GW2A-18C \
+  --vopt cst=board.cst
+
+gowin_pack -d GW2AR-LV18QN88C8/I7 -o out.fs pnr.json
+
+openFPGALoader -b tangnano20k out.fs
+
+The .cst file is the pin-constraint file mapping module ports to physical FPGA pins,
+specific to the Tang Nano 20k's pinout.
+
+M0 note: the "write one trivial testbench to prove sim -> waveform round-trip works"
+checklist item is just workflow 1 above, end to end. Do that before touching the FPGA flow.
+
+Toolchain setup:
+- OSS CAD Suite (bundles yosys, iverilog, gtkwave, nextpnr-himbaechel, openFPGALoader,
+  apycula/gowin_pack, and more) installed to /opt/oss-cad-suite
+- Activated globally via ~/.bashrc: source /opt/oss-cad-suite/environment
+- Download page: https://github.com/YosysHQ/oss-cad-suite-build/releases

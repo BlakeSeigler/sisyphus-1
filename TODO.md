@@ -9,7 +9,7 @@ No pipelining until the single-cycle version fully works.
 - [x] Install a Verilog/SystemVerilog simulator: Icarus Verilog or Verilator
 - [x] Install a waveform viewer: GTKWave or Surfer
 - [x] Install the Gowin toolchain for the Tang Nano 20k (for later FPGA bring-up)
-- [ ] Write one trivial testbench (e.g. a blinker or a 2-input AND gate) to prove
+- [x] Write one trivial testbench (e.g. a blinker or a 2-input AND gate) to prove
       sim → waveform round-trip works before touching real RTL
 - [x] Decide on a directory convention for `rtl/` vs `tb/` (testbenches) and stick to it
 

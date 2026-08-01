@@ -1,0 +1,131 @@
+# From ISA to CPU: how RV32I maps onto hardware blocks
+
+## ISA vs. microarchitecture
+
+RV32I is a *contract*: given a 32-bit instruction word, decode it this way, and it
+must produce this observable effect on registers/memory. It says nothing about
+wires, muxes, or timing — that's the microarchitecture (your job). Implementing
+RV32I doesn't mean building 47 separate mini-circuits, one per instruction. It
+means building a small number of reusable functional units (ALU, register file,
+adder for PC, memory interface) and a control unit that steers instruction bits
+to the right unit.
+
+## Every instruction is 32 bits, split into formats by encoding shape
+
+RV32I splits instructions into 6 formats — R, I, S, B, U, J — based on *where*
+the fields (opcode, rd, funct3, rs1, rs2, funct7, immediate) sit in the 32 bits,
+not based on what the instruction does:
+
+```
+R-type: funct7[31:25] rs2[24:20] rs1[19:15] funct3[14:12] rd[11:7]  opcode[6:0]
+I-type: imm[31:20]              rs1[19:15] funct3[14:12] rd[11:7]  opcode[6:0]
+S-type: imm[31:25] rs2[24:20] rs1[19:15] funct3[14:12] imm[11:7]  opcode[6:0]
+B-type: imm[31:25] rs2[24:20] rs1[19:15] funct3[14:12] imm[11:7]  opcode[6:0]  (like S, but imm bits scrambled to represent a signed offset shifted left 1)
+U-type: imm[31:12]                                    rd[11:7]  opcode[6:0]
+J-type: imm[31:12]                                    rd[11:7]  opcode[6:0]  (like U, but imm bits scrambled to represent a signed offset shifted left 1)
+```
+
+`opcode[6:0]` always sits in the same place (bits 6:0) in every format — that's
+what makes decoding tractable. Every other field's meaning depends on which
+format that opcode belongs to.
+
+Why not just one format? 32 bits isn't enough to hold opcode + rd + rs1 + rs2 +
+funct3 + funct7 all at max width *and* a large immediate at the same time.
+R-type ops (reg + reg) don't need an immediate, so that space is spent on rs2 +
+funct7 instead (10 bits of extra opcode-space to distinguish ADD/SUB/SLL/etc).
+I-type ops (reg + constant) don't need rs2, so that space becomes a 12-bit
+immediate. Each format spends its 32 bits on what that instruction actually
+needs — a genuine bit-budget tradeoff, not an arbitrary choice.
+
+## Why J-type has an immediate
+
+JAL ("jump and link") is `PC = PC + offset; rd = PC+4`. The offset is a
+compile-time-known constant baked into the instruction — there's no register
+holding "how far to jump," so it has to be an immediate. Contrast with JALR
+("jump and link register"): `PC = rs1 + offset` — that one's an I-type, because
+it needs a *register* base plus a small immediate.
+
+## Not every instruction goes through the ALU
+
+Only a subset of instructions need the ALU to produce their primary result:
+
+- R-type (ADD, SUB, AND, OR, XOR, SLT, SLTU, SLL, SRL, SRA) — ALU computes the
+  result directly.
+- I-type arithmetic (ADDI, ANDI, ORI, XORI, SLTI, SLTIU, SLLI, SRLI, SRAI) —
+  same ALU ops, one operand is the immediate instead of rs2.
+
+The ALU also gets reused for things that aren't "arithmetic instructions" per se:
+
+- Loads/stores (LW, SW, LB, SB, ...) — ALU computes the memory address as
+  `rs1 + immediate` (the ADD op).
+- Branches (BEQ, BNE, BLT, BGE, BLTU, BGEU) — ALU (as a subtractor/comparator)
+  computes the condition, usually via SUB or SLT.
+
+Some instructions don't touch the ALU's opcode table at all, or use a dedicated
+adder:
+
+- JAL/JALR, AUIPC — PC-relative or PC+offset computations. Can reuse the ALU's
+  ADD op or use a separate adder — a design choice, not an ISA requirement.
+- LUI — just places an immediate into a register; barely needs the ALU
+  (pass-through, or "ADD with 0").
+
+So of ~47 RV32I instructions, the ALU only needs the ~10 ops already in
+`docs/core/submodules/alu.md` (add/sub/and/or/xor/slt/sltu/sll/srl/sra). That
+table is already complete for the ALU itself.
+
+## How R-type vs. I-type is resolved — not inside the ALU
+
+The ALU never sees instruction types. It only has two data ports (`a`, `b`,
+both 32-bit) and one operation port (`opcode`, 4-bit). The R-type/I-type
+distinction is resolved *before* the ALU, by a mux in front of the `b` input:
+
+```
+b = (is R-type) ? reg_file[rs2] : sign_extend(immediate)
+```
+
+That mux is controlled by a signal the control unit produces (commonly called
+`ALUSrc`). So "is this R-type or I-type" only matters for what feeds `b`. The
+operation selection (ADD vs SUB vs AND...) is a separate signal (the 4-bit
+`opcode`) computed independently. The ALU itself is blind to where `b` came
+from.
+
+## Two different things are both called "opcode"
+
+- RV32I's `opcode[6:0]` field — part of the raw instruction, used by the
+  control unit to identify instruction class/format.
+- The project's ALU `opcode[3:0]` — a signal invented for this design (the one
+  in `alu.md`), that only the ALU understands. It is *not* part of the RV32I
+  encoding — it's the control unit's output, not the instruction's input.
+
+The raw 32-bit instruction never reaches the ALU. It goes to the decoder/
+control unit and immediate generator. The ALU downstream only ever gets `a`,
+`b` (already-resolved 32-bit values) and the 4-bit `opcode` (already resolved
+by the control unit). The ALU has no concept of "this came from an ADDI
+instruction" — it just adds two numbers.
+
+## How the control unit knows the instruction type
+
+By reading `opcode[6:0]` first — RV32I assigns a distinct 7-bit value per
+instruction group:
+
+| opcode[6:0] | meaning |
+|---|---|
+| `0110011` | R-type (reg-reg ALU ops) |
+| `0010011` | I-type ALU-immediate ops |
+| `0000011` | Loads |
+| `0100011` | Stores (S-type) |
+| `1100011` | Branches (B-type) |
+| `1101111` | JAL (J-type) |
+| `1100111` | JALR (I-type) |
+| `0110111` | LUI (U-type) |
+| `0010111` | AUIPC (U-type) |
+
+The control unit's first decode step is a case statement on this 7-bit field —
+that alone tells it the format (how to slice out immediate/rd/rs1/rs2) and
+which units are involved. Then, within R-type and I-type-ALU groups, it
+additionally looks at `funct3` (and `funct7` for R-type) to pick the exact
+operation — e.g. `opcode=0110011, funct3=000, funct7=0000000` = ADD, but
+`funct3=000, funct7=0100000` = SUB. That's where the 4-bit ALU `opcode`
+ultimately gets generated from — a lookup table output driven by
+`{opcode, funct3, funct7}` as inputs. Building that table is M4 (Control Unit)
+in `TODO.md`.

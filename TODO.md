@@ -14,12 +14,10 @@ No pipelining until the single-cycle version fully works.
 - [x] Decide on a directory convention for `rtl/` vs `tb/` (testbenches) and stick to it
 
 ## M1 — ALU
-- [ ] Fix `alu_module.sv` port list: `a`, `b`, `c` need to be `[31:0]`, `opcode`
-      needs to be `[3:0]` (per your op table in `alu.md`), remove the trailing
-      comma in the port list (currently a syntax error), drop the unused `clk`
-      (ALU is combinational — no clock needed)
-- [ ] Implement each op: ADD, SUB, AND, OR, XOR, SLT, SLTU, SLL, SRL, SRA
-- [ ] Wire up `overflow`, `negative`, `zero` flags correctly for signed ops
+- [x] Wire up `alu.v` port list: `a`, `b`, `c` need to be `[31:0]`, `opcode`
+      needs to be `[3:0]`
+- [x] Implement each op: ADD, SUB, AND, OR, XOR, SLT, SLTU, SLL, SRL, SRA
+- [x] Wire up `zero` flag correctly
 - [ ] Write a testbench with directed test vectors per op (include edge cases:
       0, -1, INT_MIN/MAX, shift by 0 and by 31)
 - [ ] (stretch) add randomized test vectors checked against a Python/C reference model

@@ -18,9 +18,9 @@ No pipelining until the single-cycle version fully works.
       needs to be `[3:0]`
 - [x] Implement each op: ADD, SUB, AND, OR, XOR, SLT, SLTU, SLL, SRL, SRA
 - [x] Wire up `zero` flag correctly
-- [ ] Write a testbench with directed test vectors per op (include edge cases:
+- [x] Write a testbench with directed test vectors per op (include edge cases:
       0, -1, INT_MIN/MAX, shift by 0 and by 31)
-- [ ] (stretch) add randomized test vectors checked against a Python/C reference model
+- [x] (stretch) add randomized test vectors checked against a Python/C reference model
 
 ## M2 — Register File 
 - [ ] 32 x 32-bit registers, 2 combinational read ports, 1 synchronous write port

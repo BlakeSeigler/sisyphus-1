@@ -59,3 +59,156 @@ bullet exactly. No reset is architecturally required (RV32I doesn't mandate
 defined register state at boot), though some designs add one anyway just to
 get clean, deterministic waveforms in simulation — that's a judgment call,
 not a spec requirement.
+
+
+Follow-up Q&A
+==============
+
+1) Why does x0 exist, and what's the point of the special case?
+------------------------------------------------------------------
+x0-always-zero is part of the RV32I spec itself, not a Sisyphus-1 design
+choice. The payoff is that it gives the ISA a "free" constant zero operand
+without spending any opcode space or addressing-mode complexity on it —
+RISC-V has no dedicated negate/move/load-immediate-zero/no-op instructions;
+instead those are all pseudo-instructions built on ordinary ops using x0 as
+either a source or a discard target:
+  mv   rd, rs   ->  addi rd, rs, 0
+  li   rd, 0    ->  addi rd, x0, 0
+  neg  rd, rs   ->  sub  rd, x0, rs
+  nop           ->  addi x0, x0, 0
+  beqz rs, lbl  ->  beq  rs, x0, lbl
+  ret           ->  jalr x0, x1, 0
+  j    lbl      ->  jal  x0, lbl       (result discarded into x0)
+So x0 does double duty as both "the constant zero" and "the trash can" for
+instructions whose result nobody wants (like a plain jump, which is jal
+under the hood but with the return address thrown away).
+
+The "special case" in hardware is just intercepting address 0 on both
+sides: on read, address 0 forces the output to 32'b0 regardless of what (if
+anything) is stored there; on write, address 0 gates the write-enable off
+so nothing ever lands there. You don't strictly need to build a real
+storage flop for register 0 at all — the read mux and write decoder just
+short-circuit that address.
+
+2) What is rd?
+----------------
+rd = "destination register" — the instruction field naming which register
+receives the result, paired with rs1/rs2 ("source register 1/2"). These
+aren't Sisyphus-1 terms, they're the standard RISC-V instruction-encoding
+field names: for R-type instructions (the ALU ops — ADD/SUB/AND/OR/etc.)
+the 32-bit instruction word has a 5-bit rd field at bits [11:7], a 5-bit
+rs1 at [19:15], and a 5-bit rs2 at [24:20] — each exactly wide enough to
+address one of the 32 registers. In the port table above, rd_addr/rd_data
+are just "whatever decode extracts as the current instruction's rd field,"
+fed into the write port.
+
+3) Register read/write ports — do these share pins, why 2 read/1 write, what does this look like in real hardware?
+------------------------------------------------------------------------------------------------------------------
+Registers do have genuinely distinct read and write operations, but inside
+a chip they are not normally time-multiplexed over one shared set of
+wires with a direction toggle. That toggle-pin pattern (drive a shared bus,
+flip a direction signal, read the same wires back) is what you reach for
+when wires are the scarce, expensive resource — e.g. crossing a chip
+boundary, where every wire is a physical package pin and a PCB trace. See
+docs/busses.md — that's exactly the tri-state bus / bus-master arbitration
+scenario. A register file's ports never leave the chip and aren't shared
+with anything else, so there's no pin-count pressure; you just run separate
+wires for each port in parallel instead of serializing over shared ones.
+
+Concretely, for a register file this small (32 x 32 = 1024 bits, tiny),
+the typical implementation is:
+- Storage: 32 individual 32-bit flip-flops (not SRAM — at this size SRAM's
+  density advantage is irrelevant, and flops make multi-porting trivial).
+- Each read port = a 32:1 mux, selected by that port's 5-bit address,
+  tapping every register's flop output in parallel. rs1_data and rs2_data
+  are two independent muxes with independent addresses, reading the exact
+  same underlying storage at the same time — a read never "locks out" or
+  consumes anything, so there's no conflict between having 2 of them.
+- The single write port = a 5-to-32 decoder (address -> one-hot) ANDed
+  with reg_write, producing 32 individual per-register clock-enables; only
+  the addressed flop actually latches rd_data on the clock edge, the other
+  31 just hold their value.
+- x0 needs no flop at all: the read muxes special-case address 0 to output
+  zero, and the write decoder never produces a hot bit for address 0.
+
+Why 2 reads/1 write specifically, not some other number: it's matched to
+what one instruction needs per cycle, not arbitrary. Every RV32I
+instruction reads at most two operands (rs1, rs2) and produces at most one
+result (rd), and since this is single-cycle — one instruction fully
+executes per clock, nothing overlapping — you never need more than 2R1W.
+This is also where register-file port count becomes a genuine hardware
+cost in bigger designs: a superscalar core issuing 2 instructions/cycle
+needs 4 read ports and 2 write ports to keep up, and each added port isn't
+free — it's another full mux tree per read, another decoder+AND array per
+write, and the mux trees get bigger/slower as port count grows since more
+muxing logic sits in the critical path.
+
+What this normally wires up as in reality: on an ASIC, small register
+files like this are almost always built from standard-cell flip-flops plus
+mux/decoder logic exactly as above rather than a dense SRAM macro — SRAM
+macros are economical at 1-2 ports but anything needing more basically has
+to be built from flops instead. On the Tang Nano 20k target here it's the
+same story: flip-flops are effectively free and plentiful in the fabric
+(way more of them than BRAM), and the read muxes synthesize out of LUTs, so
+small register files typically end up as flop+mux logic ("distributed
+RAM") rather than consuming a BRAM primitive — worth keeping BRAM reserved
+for the L1 cache per docs/General Design.md, since BRAM is the scarcer
+resource on this chip.
+
+4) Why does a reset give deterministic waveforms?
+----------------------------------------------------
+Without a reset, every flip-flop in the design — including these 32
+register-storage flops — powers up holding whatever its transistors
+happened to settle into (real silicon: affected by manufacturing variation,
+temperature, analog noise; simulation: modeled as 'x', unknown, until
+something explicitly drives it). "Deterministic" here means: run the same
+test twice, get bit-for-bit identical signal traces both times, so a
+waveform diff against an expected trace is actually meaningful — any
+difference is a real bug, not run-to-run noise. Without a reset, x1-x31
+start as garbage/'x', and any signal that depends on their initial value
+forks the simulation — whether a bug even shows up can depend on which way
+the simulator happened to propagate the X that run, which makes waveforms
+unreliable to diff, especially before the register file has been written
+to yet.
+
+A synchronous reset-to-zero gives a known, reproducible t=0 state: every
+register reads 0 at the start of every run, so any divergence you observe
+later must have come from the logic under test rather than from
+uninitialized state. That's the whole value — it turns "unknown starting
+point" into "known starting point." It's a simulation/verification
+convenience here, not an ISA requirement (RV32I doesn't mandate defined
+register state at boot, which is why the port table above called it a
+judgment call) — real hardware has the identical power-up-garbage problem,
+and software is expected to initialize whatever it depends on, but a reset
+is a common hardware nicety anyway since it also gives you a known boot
+state.
+
+5) How do you represent this 32-registers-of-32-bits store in Verilog — do you need 32 separate registers, or something like a "vector of vectors"?
+------------------------------------------------------------------------------------------------------------------------------------------------------
+It is inherently 2D ("32 things, each 32 bits wide"), and Verilog has a
+construct for exactly that: an unpacked array of a packed vector.
+
+  reg [31:0] regs [0:31];
+
+The `[31:0]` before the name is the packed dimension — bits within a
+single register, contiguous storage, what you'd index for a single bit or
+slice (regs[i][7:0]). The `[0:31]` after the name is the unpacked
+dimension — 32 separate 32-bit elements, indexed like a software array:
+regs[5] is the whole 32-bit register 5. So yes, it is a "vector of
+vectors" in effect, and no, you don't declare 32 individually-named
+32-bit signals (reg0, reg1, ...) — you declare the array once and index
+into it with rs1_addr/rs2_addr/rd_addr. That indexing is also what makes
+the mux-tree/decoder picture in Q3 fall out for free:
+
+  assign rs1_data = (rs1_addr == 5'd0) ? 32'b0 : regs[rs1_addr];
+
+is literally "index into the array" — synthesis is what turns that
+indexing into the actual mux tree and per-register clock-enable hardware;
+you don't build the muxes by hand.
+
+One thing worth flagging for M2: SystemVerilog also supports genuinely
+multi-dimensional unpacked arrays (e.g. regs [0:31][0:3]) if you ever
+needed a 3rd dimension — but RV32I's register file doesn't; it's exactly
+2D, 32 entries of 32 bits, nothing deeper. A 3rd dimension would only show
+up later for something like multiple register banks or a scoreboard, not
+for the base register file itself.

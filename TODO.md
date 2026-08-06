@@ -23,9 +23,9 @@ No pipelining until the single-cycle version fully works.
 - [x] (stretch) add randomized test vectors checked against a Python/C reference model
 
 ## M2 — Register File 
-- [ ] 32 x 32-bit registers, 2 combinational read ports, 1 synchronous write port
-- [ ] `x0` hardwired to zero (writes to it are no-ops)
-- [ ] Testbench: write-then-read same cycle, confirm x0 always reads 0
+- [x] 32 x 32-bit registers, 2 combinational read ports, 1 synchronous write port
+- [x] `x0` hardwired to zero (writes to it are no-ops)
+- [x] Testbench: write-then-read same cycle, confirm x0 always reads 0
 
 ## M3 — Immediate Generator + Instruction Fields 
 - [ ] Decode opcode, rd, rs1, rs2, funct3, funct7 from a 32-bit instruction word
